@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "SonarQube Coverage Analyzer",
+  "version": "1.0.0",
+  "description": "Automatically analyze SonarQube coverage for components",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*.jatismobile.com/*",
+    "https://sonarqube.jatismobile.com/*",
+    "https://sonarqubev7.jatismobile.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.jatismobile.com/*",
+        "https://sonarqube.jatismobile.com/*",
+        "https://sonarqubev7.jatismobile.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
