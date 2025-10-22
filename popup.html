@@ -143,6 +143,21 @@
       display: inline-block;
       width: 40px;
     }
+    .auto-detected {
+      background: #e8f5e8 !important;
+      border-color: #28a745;
+    }
+    .refresh-btn {
+      margin-top: 5px;
+      background: #6c757d;
+      font-size: 12px;
+      padding: 5px 10px;
+      width: auto;
+      display: inline-block;
+    }
+    .refresh-btn:hover {
+      background: #5a6268;
+    }
   </style>
 </head>
 <body>
@@ -156,6 +171,7 @@
   <div class="input-group">
     <label for="projectKey">Project Key:</label>
     <input type="text" id="projectKey" placeholder="e.g., wa_call_converter_wacallcoster" value="wa_call_converter_wacallcoster">
+    <button type="button" id="autoDetectBtn" class="refresh-btn">🔄 Auto-detect</button>
   </div>
   
   <button id="analyzeBtn">Analyze Coverage</button>

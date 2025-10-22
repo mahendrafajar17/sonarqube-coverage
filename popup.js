@@ -1,3 +1,68 @@
+// Auto-detect configuration when popup opens
+window.addEventListener('DOMContentLoaded', async () => {
+  await autoDetectConfiguration();
+});
+
+async function autoDetectConfiguration() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    // Check if we're on a SonarQube page
+    if (!tab.url.includes('sonarqube') && !tab.url.includes('sonar')) {
+      return;
+    }
+    
+    chrome.tabs.sendMessage(tab.id, { action: 'autoDetectConfig' }, (response) => {
+      if (chrome.runtime.lastError) {
+        // Try to inject content script and retry
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content.js']
+        }).then(() => {
+          setTimeout(() => {
+            chrome.tabs.sendMessage(tab.id, { action: 'autoDetectConfig' }, (retryResponse) => {
+              if (!chrome.runtime.lastError && retryResponse && retryResponse.success) {
+                updateInputFields(retryResponse);
+              }
+            });
+          }, 100);
+        }).catch(error => {
+          console.log('Could not inject content script:', error);
+        });
+        return;
+      }
+      
+      if (response && response.success) {
+        updateInputFields(response);
+      }
+    });
+  } catch (error) {
+    console.log('Auto-detection error:', error);
+  }
+}
+
+function updateInputFields(config) {
+  const baseUrlInput = document.getElementById('baseUrl');
+  const projectKeyInput = document.getElementById('projectKey');
+  
+  if (config.baseUrl && baseUrlInput.value === baseUrlInput.defaultValue) {
+    baseUrlInput.value = config.baseUrl;
+    baseUrlInput.style.background = '#e8f5e8'; // Light green to indicate auto-detected
+  }
+  
+  if (config.projectKey && projectKeyInput.value === projectKeyInput.defaultValue) {
+    projectKeyInput.value = config.projectKey;
+    projectKeyInput.style.background = '#e8f5e8'; // Light green to indicate auto-detected
+  }
+  
+  // Show status if both were detected
+  if (config.baseUrl && config.projectKey) {
+    showStatus('Auto-detected configuration from current page', 'success');
+  } else if (config.baseUrl || config.projectKey) {
+    showStatus('Partially auto-detected configuration', 'info');
+  }
+}
+
 document.getElementById('analyzeBtn').addEventListener('click', async () => {
   const baseUrl = document.getElementById('baseUrl').value.trim();
   const projectKey = document.getElementById('projectKey').value.trim();
@@ -249,6 +314,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'updateProgress') {
     updateProgress(message.message);
   }
+});
+
+// Add event listener for auto-detect button
+document.getElementById('autoDetectBtn').addEventListener('click', async () => {
+  const refreshBtn = document.getElementById('autoDetectBtn');
+  const originalText = refreshBtn.textContent;
+  refreshBtn.textContent = '🔄 Detecting...';
+  refreshBtn.disabled = true;
+  
+  await autoDetectConfiguration();
+  
+  setTimeout(() => {
+    refreshBtn.textContent = originalText;
+    refreshBtn.disabled = false;
+  }, 1000);
 });
 
 // Add event listener for copy all button

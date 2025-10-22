@@ -2,6 +2,95 @@ function getCookies() {
   return document.cookie;
 }
 
+function autoDetectBaseUrl() {
+  const currentUrl = window.location.href;
+  const urlParts = currentUrl.split('/');
+  const protocol = urlParts[0];
+  const host = urlParts[2];
+  return `${protocol}//${host}`;
+}
+
+function autoDetectProjectKey() {
+  // Method 1: Try to extract from URL path
+  const currentUrl = window.location.href;
+  
+  // Pattern for project dashboard: /dashboard?id=project_key
+  const dashboardMatch = currentUrl.match(/[?&]id=([^&]+)/);
+  if (dashboardMatch) {
+    return decodeURIComponent(dashboardMatch[1]);
+  }
+  
+  // Pattern for project overview: /project/overview?id=project_key
+  const overviewMatch = currentUrl.match(/\/project\/overview\?id=([^&]+)/);
+  if (overviewMatch) {
+    return decodeURIComponent(overviewMatch[1]);
+  }
+  
+  // Pattern for measures page: /component_measures?id=project_key
+  const measuresMatch = currentUrl.match(/component_measures\?id=([^&]+)/);
+  if (measuresMatch) {
+    return decodeURIComponent(measuresMatch[1]);
+  }
+  
+  // Method 2: Try to find project key in page meta tags
+  const metaTags = document.querySelectorAll('meta');
+  for (let meta of metaTags) {
+    if (meta.name === 'sonarqube-project-key' || meta.getAttribute('data-project-key')) {
+      return meta.content || meta.getAttribute('data-project-key');
+    }
+  }
+  
+  // Method 3: Try to find in page title or breadcrumb
+  const titleElement = document.querySelector('title');
+  if (titleElement && titleElement.textContent.includes(' - ')) {
+    const parts = titleElement.textContent.split(' - ');
+    if (parts.length > 1) {
+      // Often project key is in the title
+      return parts[0].trim();
+    }
+  }
+  
+  // Method 4: Try to find in page data attributes or global variables
+  if (window.sonarQubeProjectKey) {
+    return window.sonarQubeProjectKey;
+  }
+  
+  // Method 5: Try to extract from script tags or JSON data
+  const scripts = document.querySelectorAll('script');
+  for (let script of scripts) {
+    const content = script.textContent;
+    if (content.includes('projectKey') || content.includes('component')) {
+      const projectKeyMatch = content.match(/["']projectKey["']\s*:\s*["']([^"']+)["']/);
+      if (projectKeyMatch) {
+        return projectKeyMatch[1];
+      }
+      const componentMatch = content.match(/["']component["']\s*:\s*["']([^"']+)["']/);
+      if (componentMatch) {
+        return componentMatch[1];
+      }
+    }
+  }
+  
+  // Method 6: Try to find in breadcrumb or navigation elements
+  const breadcrumbs = document.querySelectorAll('.navbar-brand, .project-name, [data-project], .breadcrumb a, .sonar-d-inline-block');
+  for (let breadcrumb of breadcrumbs) {
+    const text = breadcrumb.textContent.trim();
+    const href = breadcrumb.href;
+    if (href && href.includes('id=')) {
+      const match = href.match(/[?&]id=([^&]+)/);
+      if (match) {
+        return decodeURIComponent(match[1]);
+      }
+    }
+    // Sometimes project key is displayed directly
+    if (text && text.length > 3 && !text.includes(' ') && text.includes('_')) {
+      return text;
+    }
+  }
+  
+  return null;
+}
+
 function getXSRFToken() {
   const cookies = document.cookie.split(';');
   for (let cookie of cookies) {
@@ -78,7 +167,7 @@ function extractUncoveredLines(sourceData) {
   return uncoveredLines;
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'analyzeCoverage') {
     analyzeCoverage(message.projectKey, message.baseUrl)
       .then(data => {
@@ -89,6 +178,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     
     return true; // Keep message channel open for async response
+  }
+  
+  if (message.action === 'autoDetectConfig') {
+    const baseUrl = autoDetectBaseUrl();
+    const projectKey = autoDetectProjectKey();
+    
+    sendResponse({ 
+      success: true, 
+      baseUrl: baseUrl,
+      projectKey: projectKey
+    });
+    
+    return true;
   }
 });
 
