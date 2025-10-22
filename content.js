@@ -103,7 +103,7 @@ function getXSRFToken() {
 }
 
 async function fetchComponentTree(projectKey, baseUrl) {
-  const url = `${baseUrl}/api/measures/component_tree?additionalFields=metrics&ps=500&asc=true&metricSort=new_coverage&s=metricPeriod&metricSortFilter=withMeasuresOnly&metricPeriodSort=1&component=${projectKey}&metricKeys=new_coverage%2Cnew_uncovered_lines%2Cnew_uncovered_conditions&strategy=leaves`;
+  const url = `${baseUrl}/api/measures/component_tree?additionalFields=metrics&ps=500&asc=true&metricSort=new_coverage&s=metricPeriod&metricSortFilter=withMeasuresOnly&metricPeriodSort=1&component=${projectKey}&metricKeys=new_coverage%2Cnew_uncovered_lines%2Cnew_uncovered_conditions%2Cnew_duplicated_lines%2Cnew_duplicated_lines_density%2Cnew_duplicated_blocks&strategy=leaves`;
   
   const response = await fetch(url, {
     method: 'GET',
@@ -167,6 +167,83 @@ function extractUncoveredLines(sourceData) {
   return uncoveredLines;
 }
 
+async function fetchDuplicatedLines(componentKey, baseUrl) {
+  const encodedKey = encodeURIComponent(componentKey);
+  const url = `${baseUrl}/api/duplications/show?key=${encodedKey}`;
+  
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'accept': 'application/json',
+      'accept-language': 'en-US,en;q=0.9',
+      'x-xsrf-token': getXSRFToken()
+    },
+    credentials: 'include'
+  });
+  
+  if (!response.ok) {
+    // If duplications API fails, return empty array instead of throwing
+    console.warn(`Could not fetch duplications for ${componentKey}: ${response.status}`);
+    return [];
+  }
+  
+  return await response.json();
+}
+
+async function extractDuplicatedBlocks(duplicationsData, componentKey, baseUrl) {
+  if (!duplicationsData || !duplicationsData.duplications) {
+    return [];
+  }
+  
+  const duplicatedBlocks = [];
+  
+  for (let dupIndex = 0; dupIndex < duplicationsData.duplications.length; dupIndex++) {
+    const duplication = duplicationsData.duplications[dupIndex];
+    if (duplication.blocks && duplication.blocks.length > 0) {
+      
+      for (let blockIndex = 0; blockIndex < duplication.blocks.length; blockIndex++) {
+        const block = duplication.blocks[blockIndex];
+        let blockCode = [];
+        
+        // Try to fetch the actual code for this block
+        try {
+          const sourceData = await fetchSourceLines(block._ref || componentKey, baseUrl);
+          if (sourceData && sourceData.sources) {
+            const fromLine = block.from;
+            const toLine = block.from + block.size - 1;
+            
+            blockCode = sourceData.sources
+              .filter(line => line.line >= fromLine && line.line <= toLine)
+              .map(line => ({
+                lineNumber: line.line,
+                code: line.code ? line.code.replace(/<[^>]*>/g, '').trim() : ''
+              }));
+          }
+        } catch (error) {
+          console.warn(`Could not fetch source for duplicate block ${block._ref}:`, error);
+        }
+        
+        duplicatedBlocks.push({
+          blockId: `${dupIndex}-${blockIndex}`,
+          from: block.from,
+          size: block.size,
+          to: block.from + block.size - 1,
+          duplicateId: dupIndex + 1,
+          totalDuplicates: duplication.blocks.length,
+          sourceFile: block._ref || componentKey,
+          blockCode: blockCode,
+          isCurrentFile: !block._ref || block._ref === componentKey
+        });
+        
+        // Add delay to avoid overwhelming server
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+  }
+  
+  return duplicatedBlocks;
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'analyzeCoverage') {
     analyzeCoverage(message.projectKey, message.baseUrl)
@@ -221,13 +298,19 @@ async function analyzeCoverage(projectKey, baseUrl) {
         message: `Processing ${i + 1}/${totalComponents}: ${component.name}` 
       });
       
-      // Extract coverage metrics
+      // Extract coverage and duplication metrics
       let coverage = 0;
       let uncoveredLines = 0;
+      let duplicatedLines = 0;
+      let duplicatedBlocks = 0;
+      let duplicatedDensity = 0;
       
       if (component.measures) {
         const coverageMeasure = component.measures.find(m => m.metric === 'new_coverage');
         const uncoveredMeasure = component.measures.find(m => m.metric === 'new_uncovered_lines');
+        const duplicatedLinesMeasure = component.measures.find(m => m.metric === 'new_duplicated_lines');
+        const duplicatedBlocksMeasure = component.measures.find(m => m.metric === 'new_duplicated_blocks');
+        const duplicatedDensityMeasure = component.measures.find(m => m.metric === 'new_duplicated_lines_density');
         
         if (coverageMeasure && coverageMeasure.period) {
           coverage = parseFloat(coverageMeasure.period.value);
@@ -236,10 +319,24 @@ async function analyzeCoverage(projectKey, baseUrl) {
         if (uncoveredMeasure && uncoveredMeasure.period) {
           uncoveredLines = parseInt(uncoveredMeasure.period.value);
         }
+        
+        if (duplicatedLinesMeasure && duplicatedLinesMeasure.period) {
+          duplicatedLines = parseInt(duplicatedLinesMeasure.period.value);
+        }
+        
+        if (duplicatedBlocksMeasure && duplicatedBlocksMeasure.period) {
+          duplicatedBlocks = parseInt(duplicatedBlocksMeasure.period.value);
+        }
+        
+        if (duplicatedDensityMeasure && duplicatedDensityMeasure.period) {
+          duplicatedDensity = parseFloat(duplicatedDensityMeasure.period.value);
+        }
       }
       
       // Fetch source lines to get detailed uncovered lines
       let uncoveredLineDetails = [];
+      let duplicatedBlockDetails = [];
+      
       try {
         const sourceData = await fetchSourceLines(component.key, baseUrl);
         uncoveredLineDetails = extractUncoveredLines(sourceData);
@@ -250,13 +347,30 @@ async function analyzeCoverage(projectKey, baseUrl) {
         console.error(`Error fetching source for ${component.key}:`, error);
       }
       
+      // Fetch duplicated lines details if there are duplications
+      if (duplicatedLines > 0 || duplicatedBlocks > 0) {
+        try {
+          const duplicationsData = await fetchDuplicatedLines(component.key, baseUrl);
+          duplicatedBlockDetails = await extractDuplicatedBlocks(duplicationsData, component.key, baseUrl);
+          
+          // Add small delay to avoid overwhelming the server
+          await new Promise(resolve => setTimeout(resolve, 200));
+        } catch (error) {
+          console.error(`Error fetching duplications for ${component.key}:`, error);
+        }
+      }
+      
       results.push({
         fileName: component.name,
         filePath: component.path,
         componentKey: component.key,
         coverage: coverage,
         uncoveredLines: uncoveredLines,
-        uncoveredLineDetails: uncoveredLineDetails
+        uncoveredLineDetails: uncoveredLineDetails,
+        duplicatedLines: duplicatedLines,
+        duplicatedBlocks: duplicatedBlocks,
+        duplicatedDensity: duplicatedDensity,
+        duplicatedBlockDetails: duplicatedBlockDetails
       });
     }
     
@@ -273,6 +387,9 @@ async function analyzeCoverage(projectKey, baseUrl) {
       console.log(`   Component Key: ${result.componentKey}`);
       console.log(`   Coverage: ${result.coverage.toFixed(1)}%`);
       console.log(`   Uncovered Lines Count: ${result.uncoveredLines}`);
+      console.log(`   Duplicated Lines: ${result.duplicatedLines}`);
+      console.log(`   Duplicated Blocks: ${result.duplicatedBlocks}`);
+      console.log(`   Duplication Density: ${result.duplicatedDensity.toFixed(1)}%`);
       
       if (result.uncoveredLineDetails.length > 0) {
         console.log(`   Uncovered Line Numbers: ${result.uncoveredLineDetails.map(l => l.lineNumber).join(', ')}`);
@@ -291,8 +408,14 @@ async function analyzeCoverage(projectKey, baseUrl) {
         console.log(`Component Key: ${result.componentKey}`);
         console.log(`Coverage: ${result.coverage.toFixed(1)}%`);
         console.log(`Uncovered Lines: ${result.uncoveredLines}`);
+        console.log(`Duplicated Lines: ${result.duplicatedLines}`);
+        console.log(`Duplicated Blocks: ${result.duplicatedBlocks}`);
+        console.log(`Duplication Density: ${result.duplicatedDensity.toFixed(1)}%`);
         console.log(`Line Numbers: ${result.uncoveredLineDetails.map(l => l.lineNumber).join(', ')}`);
         console.log(`API URL: ${baseUrl}/api/sources/lines?key=${encodeURIComponent(result.componentKey)}&from=1&to=1002`);
+        if (result.duplicatedBlockDetails.length > 0) {
+          console.log(`Duplications API URL: ${baseUrl}/api/duplications/show?key=${encodeURIComponent(result.componentKey)}`);
+        }
       }
     });
     

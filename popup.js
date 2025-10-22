@@ -192,25 +192,76 @@ function displayResults(results) {
     
     const coverage = item.coverage ? item.coverage.toFixed(1) : '0.0';
     const uncoveredLines = item.uncoveredLines || 0;
+    const duplicatedLines = item.duplicatedLines || 0;
+    const duplicatedBlocks = item.duplicatedBlocks || 0;
+    const duplicatedDensity = item.duplicatedDensity ? item.duplicatedDensity.toFixed(1) : '0.0';
     
     // Create uncovered lines details
     let uncoveredDetailsHtml = '';
-    let copyableText = '';
+    let uncoveredCopyableText = '';
     
     if (item.uncoveredLineDetails && item.uncoveredLineDetails.length > 0) {
       const lineNumbers = item.uncoveredLineDetails.map(l => l.lineNumber).join(', ');
       
-      copyableText = `File: ${item.fileName}\nPath: ${item.filePath}\nComponent Key: ${item.componentKey}\nCoverage: ${coverage}%\nUncovered Lines Count: ${uncoveredLines}\nUncovered Line Numbers: ${lineNumbers}\n\nUncovered Lines Detail:\n`;
+      uncoveredCopyableText = `File: ${item.fileName}\nPath: ${item.filePath}\nComponent Key: ${item.componentKey}\nCoverage: ${coverage}%\nUncovered Lines Count: ${uncoveredLines}\nUncovered Line Numbers: ${lineNumbers}\n\nUncovered Lines Detail:\n`;
       
       const detailsHtml = item.uncoveredLineDetails.map(line => {
-        copyableText += `Line ${line.lineNumber}: ${line.code}\n`;
+        uncoveredCopyableText += `Line ${line.lineNumber}: ${line.code}\n`;
         return `<div class="line-info"><span class="line-number">${line.lineNumber}:</span> ${line.code}</div>`;
       }).join('');
       
       uncoveredDetailsHtml = `
         <div class="copy-section">
-          <button class="copy-button" data-index="${index}">Copy Details</button>
+          <button class="copy-button uncovered-copy" data-index="${index}" data-type="uncovered">Copy Uncovered Details</button>
           <div class="uncovered-details">${detailsHtml}</div>
+        </div>
+      `;
+    }
+    
+    // Create duplicate blocks details
+    let duplicateDetailsHtml = '';
+    let duplicateCopyableText = '';
+    
+    if (item.duplicatedBlockDetails && item.duplicatedBlockDetails.length > 0) {
+      duplicateCopyableText = `File: ${item.fileName}\nPath: ${item.filePath}\nComponent Key: ${item.componentKey}\nDuplicated Lines: ${duplicatedLines}\nDuplicated Blocks: ${duplicatedBlocks}\nDuplication Density: ${duplicatedDensity}%\n\nDuplicated Blocks Detail:\n`;
+      
+      const duplicateDetailsHtmlContent = item.duplicatedBlockDetails.map(block => {
+        const blockInfo = `Duplicate Block ${block.duplicateId} (Lines ${block.from}-${block.to}, Size: ${block.size})`;
+        duplicateCopyableText += `\n${blockInfo}\nSource: ${block.sourceFile}\n`;
+        
+        let blockCodeHtml = '';
+        if (block.blockCode && block.blockCode.length > 0) {
+          blockCodeHtml = block.blockCode.map(line => {
+            duplicateCopyableText += `Line ${line.lineNumber}: ${line.code}\n`;
+            return `<div class="line-info"><span class="line-number">${line.lineNumber}:</span> ${line.code}</div>`;
+          }).join('');
+        }
+        
+        return `
+          <div class="duplicate-block">
+            <div class="block-header">${blockInfo}</div>
+            <div class="block-source">Source: ${block.sourceFile}</div>
+            <div class="block-code">${blockCodeHtml}</div>
+          </div>
+        `;
+      }).join('');
+      
+      duplicateDetailsHtml = `
+        <div class="copy-section duplicate-section">
+          <button class="copy-button duplicate-copy" data-index="${index}" data-type="duplicate">Copy Duplicate Details</button>
+          <div class="duplicate-details">${duplicateDetailsHtmlContent}</div>
+        </div>
+      `;
+    }
+    
+    // Create duplication summary if any
+    let duplicationSummaryHtml = '';
+    if (duplicatedLines > 0 || duplicatedBlocks > 0) {
+      duplicationSummaryHtml = `
+        <div class="duplication-info">
+          <div class="duplicated-lines">Duplicated Lines: ${duplicatedLines}</div>
+          <div class="duplicated-blocks">Duplicated Blocks: ${duplicatedBlocks}</div>
+          <div class="duplication-density">Duplication Density: ${duplicatedDensity}%</div>
         </div>
       `;
     }
@@ -219,11 +270,14 @@ function displayResults(results) {
       <div class="file-name">${item.fileName}</div>
       <div class="coverage">Coverage: ${coverage}%</div>
       <div class="uncovered-lines">Uncovered Lines: ${uncoveredLines}</div>
+      ${duplicationSummaryHtml}
       ${uncoveredDetailsHtml}
+      ${duplicateDetailsHtml}
     `;
     
-    // Store copyable text as data attribute
-    div.setAttribute('data-copy-text', copyableText);
+    // Store copyable text as data attributes
+    div.setAttribute('data-uncovered-copy-text', uncoveredCopyableText);
+    div.setAttribute('data-duplicate-copy-text', duplicateCopyableText);
     
     resultsDiv.appendChild(div);
   });
@@ -232,7 +286,8 @@ function displayResults(results) {
   document.querySelectorAll('.copy-button').forEach(button => {
     button.addEventListener('click', function() {
       const index = this.getAttribute('data-index');
-      copyToClipboard(parseInt(index));
+      const type = this.getAttribute('data-type');
+      copyToClipboard(parseInt(index), type);
     });
   });
 }
@@ -249,12 +304,18 @@ function copyAllDetails() {
   allResultsData.forEach((item, index) => {
     const coverage = item.coverage ? item.coverage.toFixed(1) : '0.0';
     const uncoveredLines = item.uncoveredLines || 0;
+    const duplicatedLines = item.duplicatedLines || 0;
+    const duplicatedBlocks = item.duplicatedBlocks || 0;
+    const duplicatedDensity = item.duplicatedDensity ? item.duplicatedDensity.toFixed(1) : '0.0';
     
     allCopyText += `${index + 1}. File: ${item.fileName}\n`;
     allCopyText += `   Path: ${item.filePath}\n`;
     allCopyText += `   Component Key: ${item.componentKey}\n`;
     allCopyText += `   Coverage: ${coverage}%\n`;
     allCopyText += `   Uncovered Lines Count: ${uncoveredLines}\n`;
+    allCopyText += `   Duplicated Lines: ${duplicatedLines}\n`;
+    allCopyText += `   Duplicated Blocks: ${duplicatedBlocks}\n`;
+    allCopyText += `   Duplication Density: ${duplicatedDensity}%\n`;
     
     if (item.uncoveredLineDetails && item.uncoveredLineDetails.length > 0) {
       const lineNumbers = item.uncoveredLineDetails.map(l => l.lineNumber).join(', ');
@@ -266,6 +327,23 @@ function copyAllDetails() {
       allCopyText += `   Uncovered Lines Detail:\n`;
       item.uncoveredLineDetails.forEach(line => {
         allCopyText += `     Line ${line.lineNumber}: ${line.code}\n`;
+      });
+    }
+    
+    if (item.duplicatedBlockDetails && item.duplicatedBlockDetails.length > 0) {
+      const storedBaseUrl = document.getElementById('baseUrl').value || 'https://sonarqube.jatismobile.com';
+      allCopyText += `   Duplications API URL: ${storedBaseUrl}/api/duplications/show?key=${encodeURIComponent(item.componentKey)}\n`;
+      
+      allCopyText += `   Duplicated Blocks Detail:\n`;
+      item.duplicatedBlockDetails.forEach(block => {
+        allCopyText += `     Duplicate Block ${block.duplicateId} (Lines ${block.from}-${block.to}, Size: ${block.size})\n`;
+        allCopyText += `     Source: ${block.sourceFile}\n`;
+        if (block.blockCode && block.blockCode.length > 0) {
+          block.blockCode.forEach(line => {
+            allCopyText += `       Line ${line.lineNumber}: ${line.code}\n`;
+          });
+        }
+        allCopyText += `\n`;
       });
     }
     
@@ -290,13 +368,26 @@ function copyAllDetails() {
   });
 }
 
-function copyToClipboard(index) {
+function copyToClipboard(index, type) {
   const resultItems = document.querySelectorAll('.result-item');
-  const copyText = resultItems[index].getAttribute('data-copy-text');
+  let copyText = '';
+  let button = null;
+  
+  if (type === 'uncovered') {
+    copyText = resultItems[index].getAttribute('data-uncovered-copy-text');
+    button = resultItems[index].querySelector('.uncovered-copy');
+  } else if (type === 'duplicate') {
+    copyText = resultItems[index].getAttribute('data-duplicate-copy-text');
+    button = resultItems[index].querySelector('.duplicate-copy');
+  }
+  
+  if (!copyText || !button) {
+    console.error('Copy text or button not found');
+    return;
+  }
   
   navigator.clipboard.writeText(copyText).then(() => {
     // Show feedback
-    const button = resultItems[index].querySelector('.copy-button');
     const originalText = button.textContent;
     button.textContent = 'Copied!';
     button.style.background = '#28a745';
