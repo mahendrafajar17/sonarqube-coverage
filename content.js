@@ -103,7 +103,27 @@ function getXSRFToken() {
 }
 
 async function fetchComponentTree(projectKey, baseUrl) {
-  const url = `${baseUrl}/api/measures/component_tree?additionalFields=metrics&ps=500&asc=true&metricSort=new_coverage&s=metricPeriod&metricSortFilter=withMeasuresOnly&metricPeriodSort=1&component=${projectKey}&metricKeys=new_coverage%2Cnew_uncovered_lines%2Cnew_uncovered_conditions%2Cnew_duplicated_lines%2Cnew_duplicated_lines_density%2Cnew_duplicated_blocks&strategy=leaves`;
+  const url = `${baseUrl}/api/measures/component_tree?additionalFields=metrics&ps=500&asc=true&metricSort=coverage&s=metric&metricSortFilter=withMeasuresOnly&component=${projectKey}&metricKeys=coverage%2Cuncovered_lines%2Cuncovered_conditions%2Cduplicated_lines%2Cduplicated_lines_density%2Cduplicated_blocks&strategy=leaves`;
+  
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'accept': 'application/json',
+      'accept-language': 'en-US,en;q=0.9',
+      'x-xsrf-token': getXSRFToken()
+    },
+    credentials: 'include'
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  return await response.json();
+}
+
+async function fetchComponentMeasures(projectKey, baseUrl, metric = 'duplicated_lines_density') {
+  const url = `${baseUrl}/api/measures/component?component=${projectKey}&metricKeys=${metric}`;
   
   const response = await fetch(url, {
     method: 'GET',
@@ -282,6 +302,19 @@ async function analyzeCoverage(projectKey, baseUrl) {
     // Fetch component tree
     const treeData = await fetchComponentTree(projectKey, baseUrl);
     
+    // Try to fetch overall project duplication metrics as fallback
+    let overallDuplicationData = null;
+    try {
+      chrome.runtime.sendMessage({ 
+        action: 'updateProgress', 
+        message: 'Fetching overall duplication metrics...' 
+      });
+      overallDuplicationData = await fetchComponentMeasures(projectKey, baseUrl, 'duplicated_lines_density,duplicated_lines,duplicated_blocks');
+      console.log('Overall duplication data:', overallDuplicationData);
+    } catch (error) {
+      console.warn('Could not fetch overall duplication data:', error);
+    }
+    
     if (!treeData.components || treeData.components.length === 0) {
       return [];
     }
@@ -306,31 +339,52 @@ async function analyzeCoverage(projectKey, baseUrl) {
       let duplicatedDensity = 0;
       
       if (component.measures) {
-        const coverageMeasure = component.measures.find(m => m.metric === 'new_coverage');
-        const uncoveredMeasure = component.measures.find(m => m.metric === 'new_uncovered_lines');
-        const duplicatedLinesMeasure = component.measures.find(m => m.metric === 'new_duplicated_lines');
-        const duplicatedBlocksMeasure = component.measures.find(m => m.metric === 'new_duplicated_blocks');
-        const duplicatedDensityMeasure = component.measures.find(m => m.metric === 'new_duplicated_lines_density');
+        const coverageMeasure = component.measures.find(m => m.metric === 'coverage');
+        const uncoveredMeasure = component.measures.find(m => m.metric === 'uncovered_lines');
+        const duplicatedLinesMeasure = component.measures.find(m => m.metric === 'duplicated_lines');
+        const duplicatedBlocksMeasure = component.measures.find(m => m.metric === 'duplicated_blocks');
+        const duplicatedDensityMeasure = component.measures.find(m => m.metric === 'duplicated_lines_density');
         
-        if (coverageMeasure && coverageMeasure.period) {
-          coverage = parseFloat(coverageMeasure.period.value);
+        if (coverageMeasure && coverageMeasure.value) {
+          coverage = parseFloat(coverageMeasure.value);
         }
         
-        if (uncoveredMeasure && uncoveredMeasure.period) {
-          uncoveredLines = parseInt(uncoveredMeasure.period.value);
+        if (uncoveredMeasure && uncoveredMeasure.value) {
+          uncoveredLines = parseInt(uncoveredMeasure.value);
         }
         
-        if (duplicatedLinesMeasure && duplicatedLinesMeasure.period) {
-          duplicatedLines = parseInt(duplicatedLinesMeasure.period.value);
+        if (duplicatedLinesMeasure && duplicatedLinesMeasure.value) {
+          duplicatedLines = parseInt(duplicatedLinesMeasure.value);
         }
         
-        if (duplicatedBlocksMeasure && duplicatedBlocksMeasure.period) {
-          duplicatedBlocks = parseInt(duplicatedBlocksMeasure.period.value);
+        if (duplicatedBlocksMeasure && duplicatedBlocksMeasure.value) {
+          duplicatedBlocks = parseInt(duplicatedBlocksMeasure.value);
         }
         
-        if (duplicatedDensityMeasure && duplicatedDensityMeasure.period) {
-          duplicatedDensity = parseFloat(duplicatedDensityMeasure.period.value);
+        if (duplicatedDensityMeasure && duplicatedDensityMeasure.value) {
+          duplicatedDensity = parseFloat(duplicatedDensityMeasure.value);
         }
+        
+        // If no duplication data found for this component, try to use overall project data
+        if (duplicatedLines === 0 && duplicatedBlocks === 0 && duplicatedDensity === 0 && overallDuplicationData) {
+          const overallMeasures = overallDuplicationData.component?.measures || [];
+          const overallDuplicatedLines = overallMeasures.find(m => m.metric === 'duplicated_lines');
+          const overallDuplicatedBlocks = overallMeasures.find(m => m.metric === 'duplicated_blocks');
+          const overallDuplicatedDensity = overallMeasures.find(m => m.metric === 'duplicated_lines_density');
+          
+          if (overallDuplicatedLines?.value) {
+            duplicatedLines = parseInt(overallDuplicatedLines.value);
+          }
+          if (overallDuplicatedBlocks?.value) {
+            duplicatedBlocks = parseInt(overallDuplicatedBlocks.value);
+          }
+          if (overallDuplicatedDensity?.value) {
+            duplicatedDensity = parseFloat(overallDuplicatedDensity.value);
+          }
+        }
+        
+        // Debug log duplication metrics
+        console.log(`File: ${component.name}, Duplicated Lines: ${duplicatedLines}, Duplicated Blocks: ${duplicatedBlocks}, Density: ${duplicatedDensity}%`);
       }
       
       // Fetch source lines to get detailed uncovered lines

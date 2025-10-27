@@ -254,25 +254,30 @@ function displayResults(results) {
       `;
     }
     
-    // Create duplication summary if any
-    let duplicationSummaryHtml = '';
-    if (duplicatedLines > 0 || duplicatedBlocks > 0) {
-      duplicationSummaryHtml = `
-        <div class="duplication-info">
-          <div class="duplicated-lines">Duplicated Lines: ${duplicatedLines}</div>
-          <div class="duplicated-blocks">Duplicated Blocks: ${duplicatedBlocks}</div>
-          <div class="duplication-density">Duplication Density: ${duplicatedDensity}%</div>
-        </div>
-      `;
-    }
+    // Always show duplication summary
+    let duplicationSummaryHtml = `
+      <div class="duplication-info">
+        <div class="duplicated-lines">Duplicated Lines: ${duplicatedLines}</div>
+        <div class="duplicated-blocks">Duplicated Blocks: ${duplicatedBlocks}</div>
+        <div class="duplication-density">Duplication Density: ${duplicatedDensity}%</div>
+      </div>
+    `;
     
     div.innerHTML = `
       <div class="file-name">${item.fileName}</div>
-      <div class="coverage">Coverage: ${coverage}%</div>
-      <div class="uncovered-lines">Uncovered Lines: ${uncoveredLines}</div>
-      ${duplicationSummaryHtml}
-      ${uncoveredDetailsHtml}
-      ${duplicateDetailsHtml}
+      
+      <!-- Coverage Section -->
+      <div class="coverage-section">
+        <div class="coverage">Coverage: ${coverage}%</div>
+        <div class="uncovered-lines">Uncovered Lines: ${uncoveredLines}</div>
+        ${uncoveredDetailsHtml}
+      </div>
+      
+      <!-- Duplication Section -->
+      <div class="duplication-section">
+        ${duplicationSummaryHtml}
+        ${duplicateDetailsHtml}
+      </div>
     `;
     
     // Store copyable text as data attributes
