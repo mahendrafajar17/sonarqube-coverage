@@ -231,6 +231,30 @@
       color: #0c5460;
       font-weight: bold;
     }
+    .duplicate-summary {
+      background: #fff3cd;
+      padding: 5px;
+      border-radius: 3px;
+      margin-bottom: 5px;
+      font-size: 11px;
+      border: 1px solid #ffeaa7;
+    }
+    .block-lines {
+      font-size: 10px;
+      color: #6c757d;
+      margin-bottom: 3px;
+      font-family: monospace;
+    }
+    .duplicated-line-numbers {
+      color: #856404;
+      font-weight: bold;
+      margin-top: 5px;
+      padding: 3px;
+      background: #fff8e6;
+      border-radius: 3px;
+      font-size: 11px;
+      font-family: monospace;
+    }
   </style>
 </head>
 <body>
@@ -248,7 +272,10 @@
   </div>
   
   <button id="analyzeBtn">Analyze Coverage</button>
+  <button id="analyzeDuplicationBtn" style="margin-top: 5px; background: #ffc107; color: #212529;">Analyze Duplication</button>
   <button id="copyAllBtn" style="display: none; margin-top: 10px; background: #17a2b8;">Copy All Details</button>
+  <button id="copyAllCoverageBtn" style="display: none; margin-top: 5px; background: #007bff;">Copy All Coverage</button>
+  <button id="copyAllDuplicateBtn" style="display: none; margin-top: 5px; background: #ffc107; color: #212529;">Copy All Duplicates</button>
   
   <div id="status"></div>
   <div class="progress" id="progress"></div>
